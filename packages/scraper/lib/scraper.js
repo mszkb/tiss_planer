@@ -94,6 +94,7 @@ async function getDataFromToss(studyData) {
 
 function getCourseData(reponse) {
     return reponse.map(e => {
+        // TODO use name as the object key like in https://www.fsinf.at/files/curricula/e033526.json
         return {
             "name": e.name_de,
             "ects": e.ects,
