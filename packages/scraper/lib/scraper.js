@@ -55,11 +55,9 @@
 
 const puppeteer = require('puppeteer');
 const log = require("./logging.js");
-const replaceUmlaute = require('./umlauts.js');
 const { prefix, semester } = require('./codes.js');
+const writeJsonFiles = require('./output');
 const HTMLParser = require('node-html-parser');
-const path = require('path');
-const fs = require('fs');
 const $http = require('axios');
 
 const baseURL = "https://tiss.tuwien.ac.at";
@@ -121,6 +119,7 @@ const listOfAcademicPrograms = async (url, specificStudy) => {
             })
             const oida = await getDataFromToss(specific);
             await writeJsonFiles(oida, "curricula");
+            studyCodeStructure = oida;
         }
 
         //writeJsonFiles(studyCodeStructure, "studies");
@@ -142,43 +141,23 @@ const listOfAcademicPrograms = async (url, specificStudy) => {
     return studyCodeStructure;
 }
 
-async function writeJsonFiles(studyCodeStructure, dir = "studies") {
-    if(dir === undefined) {
-        log.error("dir param is mandatory, use 'studies' or 'curricula'")
-    }
-
-    if(dir === "studies") {
-        studyCodeStructure.forEach(e => {
-            const fileName = replaceUmlaute(e.name.replace(/ /g, '-').toLowerCase() + ".json");
-            const filePath = path.join(__dirname, `/../studies/`, fileName);
-            // TODO replace with async
-            fs.writeFileSync(filePath, JSON.stringify(e));
-        })
-    }
-
-    if(dir === "curricula") {
-        const codeTrimmed = studyCodeStructure.code.replace(/ /g, '');
-        const fileName = codeTrimmed + ".json";
-        const filePath = path.join(__dirname, `/../curricula/`, "e" + fileName);
-        // TODO replace with async
-        fs.writeFileSync(filePath, JSON.stringify(studyCodeStructure));
-    }
-}
-
-
 function studyStructure(studies) {
     const htmlTags = studies[0].childNodes;
     const studyTopic = [];
     const studyCodeStructure = [];
 
+    // The html structure alternates between <h2> and <table>
+    // h2 begins a new study topic
+    // table lists all studies with its codes
     htmlTags.forEach((e) => {
         if (e.tagName === "h2") {
             studyTopic.push({
-                "name": extractStudyTopic(e),
+                "name": e.tagName === "h2" ? e.childNodes[0].rawText : null,
             });
         }
         if (e.tagName === "table") {
-            studyCodeStructure.push(extractStudyCodes(e));
+            const study = extractStudy(e);
+            studyCodeStructure.push(study);
         }
     });
 
@@ -190,32 +169,26 @@ function studyStructure(studies) {
     });
 }
 
-function extractStudyTopic(h2) {
-    if (h2.tagName === "h2") {
-        return h2.childNodes[0].rawText;
-    }
-}
-
-function extractStudyCodes(codesHtml) {
+/**
+ * @param {HTMLElement} codesHtml
+ * @return {studyCodeStructure}
+ */
+function extractStudy(codesHtml) {
     const allNames = codesHtml.querySelectorAll(".studyCodeNameColumn");
     const allCodes = codesHtml.querySelectorAll(".studyCodeColumn");
 
     return allNames.map((e, idx) => {
         // get the url out of the href attribute, split by " and take the middle of the splitted array
         const href = e.childNodes[0].rawAttrs.split('"')[1];
-        const studyData = {
-            "name": e.rawText.trim(),
-            "code": allCodes[idx].rawText
-        }
-        // const { semesterRecommendation, courses, groups } = await getDataFromToss(studyData);
+        const name = e.rawText.trim();
+        const code = allCodes[idx].rawText;
+        const source = semester(`${baseURL}${href}`);
 
+        // @type studyCodeStructure
         return {
-            "name": studyData.name,
-            "code": studyData.code,
-            "source": semester(`${baseURL}${href}`),
-            // semesterRecommendation,
-            // courses,
-            // groups
+            name,
+            code,
+            source
         }
     });
 }

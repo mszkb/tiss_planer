@@ -3,6 +3,8 @@
 const { getCourseData, getDataFromToss, listOfAcademicPrograms } = require("../lib/scraper.js");
 const testStudyData = require("./testStudyData.json");
 const testResponse = require("./testTossSearchResponse.json");
+const fs = require('fs-extra');
+const path = require('path');
 
 const tissURL = "https://tiss.tuwien.ac.at/curriculum/studyCodes.xhtml";
 
@@ -19,7 +21,14 @@ describe('scraper', () => {
 
     it('check full run with single sutdy', async () => {
         const singleStudy = await listOfAcademicPrograms(tissURL, "Bachelorstudium Medieninformatik und Visual Computing");
-        console.log(singleStudy);
+
+        // test if file is created
+        const file = path.join(__dirname, '/../curricula/', `${singleStudy.code}.json`)
+        const data = await fs.readJson(file);
+        const code = data.code;
+
+        expect(code).toBe("e033532");
+        expect(data).toMatchSnapshot();
     })
 
     it('test getCourseData', () => {
