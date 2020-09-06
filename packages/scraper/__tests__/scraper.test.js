@@ -7,10 +7,6 @@ const testResponse = require("./testTossSearchResponse.json");
 const tissURL = "https://tiss.tuwien.ac.at/curriculum/studyCodes.xhtml";
 
 describe('scraper', () => {
-    it('needs tests', () => {
-        expect(1 + 1).toBe(2);
-    });
-
     it('check for specific academic programs', async () => {
         const studyCodeStructure = await listOfAcademicPrograms(tissURL);
         const studyToTest = studyCodeStructure.find(e => e.name === "Informatik");
@@ -21,13 +17,22 @@ describe('scraper', () => {
         expect(lvaToTest.code).toBe("033 535");
     });
 
+    it('check full run with single sutdy', async () => {
+        const singleStudy = await listOfAcademicPrograms(tissURL, "Bachelorstudium Medieninformatik und Visual Computing");
+        console.log(singleStudy);
+    })
+
     it('test getCourseData', () => {
         const courseData = getCourseData(testResponse);
         expect(courseData[0].name).toBe("Architekturdokumentation und Präsentation");
     })
 
     it('test getDataFromToss', async () => {
-        const studyData = await getDataFromToss(testStudyData);
-        expect(studyData.courses[0].name === "AKANA Funktionalanalysis für TM");
+        const studyData = await getDataFromToss({
+            code: "033 526",
+            name: "Wirschaftsinformatik",
+            source: "https://tiss.tuwien.ac.at/curriculum/public/curriculumFileDownload.xhtml?date=20191001T000000&key=45300"
+        });
+        expect(studyData.courses[0]["VO 3D Vision"].name).toBe("3D Vision");
     })
 });

@@ -1,16 +1,26 @@
 'use strict';
 
 /**
- * @typedef {Object} studies
+ * @typedef {Object} Toss
  * @property {String} name
  * @property {String} code
- * @property {String} link
+ * @property {String} source
+ * @property {Array<Array<String>>} semesterRecommendation
+ * @property {Array<tossCourse>} courses
+ * @property {Array<Array<String>>}
  *
+ * @typedef {Object} Course
+ * @property {String} name
+ * @property {Float} ects
+ * @property {Integer} semesterRecommendation
+ *
+ * @typedef {Array<study>} studyCodeStructure
  * @typedef {Object} study
  * @property {String} name
  * @property {Array<studies>} studies
  *
- * @typedef {Array<study>} studyCodeStructure
+ *
+ *
  *
  * @typedef {Object} Mapping
  * @property {Integer} tiss_id
@@ -46,7 +56,7 @@
 const puppeteer = require('puppeteer');
 const log = require("./logging.js");
 const replaceUmlaute = require('./umlauts.js');
-const checkPrefix = require('./codes.js');
+const { prefix, semester } = require('./codes.js');
 const HTMLParser = require('node-html-parser');
 const path = require('path');
 const fs = require('fs');
@@ -55,20 +65,31 @@ const $http = require('axios');
 const baseURL = "https://tiss.tuwien.ac.at";
 const tossURL = code => `https://toss.fsinf.at/api/search?q=${code}`;
 
-
-
+/**
+ * Workflow:
+ * - Get all studies with studycode and name from tiss (studyCodeStructure)
+ * - export it as json files to persist it (on github via travis)
+ * -
+ */
 async function scraper() {
     const tissURL = "https://tiss.tuwien.ac.at/curriculum/studyCodes.xhtml";
     await listOfAcademicPrograms(tissURL);
 }
 
+/////////////////////////////////////////////////////// TISS - start //
+//
+// This part is only for tiss
+// We create a list of studycodes for further evaluation for TOSS
+//
+
 /**
  * Creates a json structure of all available studies of given TISS URL.
  *
  * @param url
+ * @param specificStudy - scrape a specific study
  * @return {studyCodeStructure}
  */
-const listOfAcademicPrograms = async url => {
+const listOfAcademicPrograms = async (url, specificStudy) => {
     let browser;
     const codyCodeSelector = '#studyCodeListForm'
     let studyCodeStructure;
@@ -89,8 +110,24 @@ const listOfAcademicPrograms = async url => {
         const studies = root.querySelectorAll(codyCodeSelector);
         studyCodeStructure = studyStructure(studies);
 
+        if (specificStudy) {
+            let specific;
+            studyCodeStructure.forEach(e => {
+                e.studies.forEach(f => {
+                    if (f.name === specificStudy) {
+                        specific = f;
+                    }
+                })
+            })
+            const oida = await getDataFromToss(specific);
+            await writeJsonFiles(oida, "curricula");
+        }
+
         //writeJsonFiles(studyCodeStructure, "studies");
         //await writeJsonFiles(studyCodeStructure, "curricula")
+
+        // TODO scrape all study codes and save the html
+        // TODO create json from the saved html
 
         browser.close();
 
@@ -120,59 +157,14 @@ async function writeJsonFiles(studyCodeStructure, dir = "studies") {
     }
 
     if(dir === "curricula") {
-        studyCodeStructure.forEach(e => {
-            e.studies.forEach(async f => {
-                const study = await getDataFromToss(f);
-                const codeTrimmed = f.code.replace(/ /g, '');
-                const fileName = codeTrimmed + ".json";
-                const filePath = path.join(__dirname, `/../curricula/`, "e" + fileName);
-                // TODO replace with async
-                fs.writeFileSync(filePath, JSON.stringify(study));
-            })
-        })
+        const codeTrimmed = studyCodeStructure.code.replace(/ /g, '');
+        const fileName = codeTrimmed + ".json";
+        const filePath = path.join(__dirname, `/../curricula/`, "e" + fileName);
+        // TODO replace with async
+        fs.writeFileSync(filePath, JSON.stringify(studyCodeStructure));
     }
 }
 
-/**
- *
- * @param studyData
-
- *
- * @type {Object} toss
- * @property {String} code
- * @property {String} name
- * @property {String} source
- * @property {Array<Object>} semesterRecommendation
- * @property {Array<tossCourse>} courses
- * @return {toss}
- */
-async function getDataFromToss(studyData) {
-    const code = studyData.code.replace(/ /g, '');
-    const url = tossURL(checkPrefix(code));
-    const response = await $http.get(url);
-    return {
-        "code": code,
-        "name": studyData.name,
-        "source": "",
-        "semesterRecommendation": [],
-        "courses": getCourseData(response.data)
-    };
-}
-
-function getCourseData(reponse) {
-    return reponse.map(e => {
-        // TODO use name as the object key like in https://www.fsinf.at/files/curricula/e033526.json
-        return {
-            "name": e.name_de,
-            "ects": e.ects,
-            "semesterRecommendation": 0
-        }
-    })
-}
-
-async function getSemesterRecommendations() {
-
-}
 
 function studyStructure(studies) {
     const htmlTags = studies[0].childNodes;
@@ -211,15 +203,79 @@ function extractStudyCodes(codesHtml) {
     return allNames.map((e, idx) => {
         // get the url out of the href attribute, split by " and take the middle of the splitted array
         const href = e.childNodes[0].rawAttrs.split('"')[1];
-        return {
+        const studyData = {
             "name": e.rawText.trim(),
-            "code": allCodes[idx].rawText,
-            "link": `${baseURL}${href}`,
+            "code": allCodes[idx].rawText
+        }
+        // const { semesterRecommendation, courses, groups } = await getDataFromToss(studyData);
+
+        return {
+            "name": studyData.name,
+            "code": studyData.code,
+            "source": semester(`${baseURL}${href}`),
+            // semesterRecommendation,
+            // courses,
+            // groups
         }
     });
 }
 
+/////////////////////////////////////////////////////// TISS - end   //
+
+
+async function getDataFromToss(studyData) {
+    const code = prefix(studyData.code.replace(/ /g, ''));
+    const url = tossURL(code);
+    const response = await $http.get(url);
+    return {
+        "code": code,
+        "name": studyData.name,
+        // todo source from url
+        "source": studyData.source,
+        "semesterRecommendation": createTossRecommendation(6, response.data, studyData.code),
+        "courses": createTossCourse(response.data, studyData.code),
+        "groups": []
+    };
+}
+
+/**
+ * @param {Integer} duration - how long does the study take, default: 6 (bakk)
+ * @param {tossCourse} courses
+ * @param {String} studycode - from tiss
+ * @return semesterRecommendation
+ */
+function createTossRecommendation(duration = 6, courses, studycode) {
+    const semesterRecommendation = [...Array(duration)].map(e => []);
+
+    // filter - mapping has item with semester
+    const mapped = courses.filter(e => e.mapping.length);
+    // sort semester into correct array position of semesterRecommendation
+    mapped.forEach((e, x) => {
+        const semester = e.mapping.find(e => e.code === studycode).semester
+        if(semester) {
+            const semesterRecommendationName = `${e.course_type} ${e.name_de}`;
+            semesterRecommendation[semester - 1].push(semesterRecommendationName);
+        }
+    });
+
+    return semesterRecommendation;
+}
+
+/**
+ * @param response
+ * @return Course
+ */
+function createTossCourse(response, studycode) {
+    return response.map(e => {
+        return {
+            [`${e.course_type} ${e.name_de}`]: {
+            "name": e.name_de,
+            "ects": e.ects,
+            "semesterRecommendation": e.mapping.find(e => e.code === studycode).semester
+        }};
+    })
+}
 
 
 
-module.exports = { scraper, getCourseData, getDataFromToss, listOfAcademicPrograms };
+module.exports = { scraper, getCourseData: createTossCourse, getDataFromToss, listOfAcademicPrograms };
